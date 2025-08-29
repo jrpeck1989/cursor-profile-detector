@@ -1,0 +1,106 @@
+#!/bin/zsh
+set -euo pipefail
+
+print_usage() {
+  cat << USAGE
+Usage: cursor-sync-extensions [--from <dir>|--from=<dir>|-f <dir>] [--to personal|work|both] [--dry-run|-n]
+
+- --from/-f  Source extensions directory. Defaults to Cursor/VSCode common locations.
+- --to/-t    Destination profile(s): personal, work, or both. Default: both
+- --dry-run  Show what would be copied without making changes
+USAGE
+}
+
+expand_path() {
+  local input_path="$1"
+  if [[ -z "$input_path" ]]; then echo ""; return; fi
+  # Expand leading ~ to $HOME
+  if [[ "$input_path" == ~* ]]; then
+    input_path="${input_path/#\~/$HOME}"
+  fi
+  if [ -d "$input_path" ]; then
+    (cd "$input_path" && pwd -P)
+  else
+    local dir_part base_part
+    dir_part="$(dirname "$input_path")"
+    base_part="$(basename "$input_path")"
+    (cd "$dir_part" && echo "$(pwd -P)/$base_part")
+  fi
+}
+
+for arg in "$@"; do
+  case "$arg" in
+    --help|-h) print_usage; exit 0 ;;
+  esac
+done
+
+SRC=""
+DEST="both"
+DRY_RUN=0
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --from=*) SRC="${1#*=}"; shift ;;
+    --from) shift; if [[ $# -eq 0 ]]; then echo "--from requires a directory" >&2; exit 2; fi; SRC="$1"; shift ;;
+    -f=*) SRC="${1#*=}"; shift ;;
+    -f) shift; if [[ $# -eq 0 ]]; then echo "-f requires a directory" >&2; exit 2; fi; SRC="$1"; shift ;;
+    --to=*) DEST="${1#*=}"; shift ;;
+    --to) shift; if [[ $# -eq 0 ]]; then echo "--to requires a value (personal|work|both)" >&2; exit 2; fi; DEST="$1"; shift ;;
+    -t=*) DEST="${1#*=}"; shift ;;
+    -t) shift; if [[ $# -eq 0 ]]; then echo "-t requires a value (personal|work|both)" >&2; exit 2; fi; DEST="$1"; shift ;;
+    --dry-run|-n) DRY_RUN=1; shift ;;
+    --) shift; break ;;
+    --*) echo "Unknown option: $1" >&2; print_usage; exit 2 ;;
+    *) echo "Unexpected argument: $1" >&2; print_usage; exit 2 ;;
+  esac
+done
+
+PROFILE_BASE="$HOME/Library/Application Support/CursorProfiles"
+PERSONAL_EXT="$PROFILE_BASE/personal/extensions"
+WORK_EXT="$PROFILE_BASE/work/extensions"
+
+# Attempt to infer default Cursor/VSCode extensions directory if not provided
+if [[ -z "$SRC" ]]; then
+  CANDIDATES=(
+    "$HOME/.vscode/extensions"
+    "$HOME/.cursor/extensions"
+    "$HOME/Library/Application Support/Cursor/extensions"
+    "$HOME/Library/Application Support/Code/User/globalStorage"
+  )
+  for c in "${CANDIDATES[@]}"; do
+    if [[ -d "$c" ]]; then
+      SRC="$c"
+      break
+    fi
+  done
+fi
+
+SRC="$(expand_path "$SRC")"
+
+if [[ -z "$SRC" || ! -d "$SRC" ]]; then
+  echo "Could not find a source extensions directory. Provide --from <dir>." >&2
+  exit 2
+fi
+
+case "$DEST" in
+  personal) DSTS=("$PERSONAL_EXT") ;;
+  work) DSTS=("$WORK_EXT") ;;
+  both) DSTS=("$PERSONAL_EXT" "$WORK_EXT") ;;
+  *) echo "Invalid --to value: $DEST (expected personal|work|both)" >&2; exit 2 ;;
+esac
+
+for dst in "${DSTS[@]}"; do
+  mkdir -p "$dst"
+  echo "Syncing from: $SRC"
+  echo "        to:   $dst"
+  if [[ $DRY_RUN -eq 1 ]]; then
+    rsync -aiv --dry-run --delete "$SRC/" "$dst/"
+  else
+    rsync -aH --delete "$SRC/" "$dst/"
+  fi
+  echo "---"
+done
+
+echo "Done."
+
+

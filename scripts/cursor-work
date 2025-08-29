@@ -1,0 +1,4 @@
+#!/bin/zsh
+exec "$HOME/bin/cursor-smart" --profile=work "$@"
+
+

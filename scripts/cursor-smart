@@ -1,0 +1,126 @@
+#!/bin/zsh
+set -euo pipefail
+
+canonicalize() {
+  local input_path="$1"
+  if [ -d "$input_path" ]; then
+    (cd "$input_path" && pwd -P)
+  else
+    local dir_part
+    dir_part="$(dirname "$input_path")"
+    local base_part
+    base_part="$(basename "$input_path")"
+    (cd "$dir_part" && echo "$(pwd -P)/$base_part")
+  fi
+}
+
+print_usage() {
+  cat << USAGE
+Usage: cursor-smart [--dry-run] [--print-cmd] [--profile=personal|work|oss] [path]
+
+- --dry-run     Print the detected profile and command without launching Cursor
+- --print-cmd   Print the final launch command
+- --profile     Force profile (personal/work). 'oss' maps to personal
+- path          File or directory to open (defaults to current directory)
+USAGE
+}
+
+DRY_RUN=0
+PRINT_CMD=0
+FORCE_PROFILE=""
+
+for arg in "$@"; do
+  case "$arg" in
+    --help|-h) print_usage; exit 0 ;;
+  esac
+done
+
+# Parse flags
+while [[ "$#" -gt 0 ]]; do
+  case "$1" in
+    --dry-run) DRY_RUN=1; shift ;;
+    --print-cmd) PRINT_CMD=1; shift ;;
+    --profile=*) FORCE_PROFILE="${1#*=}"; shift ;;
+    --) shift; break ;;
+    --*) echo "Unknown option: $1" >&2; print_usage; exit 2 ;;
+    *) break ;;
+  esac
+done
+
+TARGET="${1:-$PWD}"
+
+# Paths
+DOCS="$HOME/Documents"
+PERSONAL_ROOT="$DOCS/personal-projects"
+OSS_ROOT="$DOCS/open-source-projects"
+WORK_ROOT="$DOCS/work-projects"
+PROFILE_BASE="$HOME/Library/Application Support/CursorProfiles"
+PERSONAL_PROFILE="$PROFILE_BASE/personal"
+WORK_PROFILE="$PROFILE_BASE/work"
+PERSONAL_EXT="$PERSONAL_PROFILE/extensions"
+WORK_EXT="$WORK_PROFILE/extensions"
+
+# Resolve target dir for detection
+if [ -f "$TARGET" ]; then
+  TARGET_DIR="$(dirname "$TARGET")"
+else
+  TARGET_DIR="$TARGET"
+fi
+TARGET_DIR="$(canonicalize "$TARGET_DIR")"
+
+# Determine profile
+PROFILE="personal"
+if [[ -n "$FORCE_PROFILE" ]]; then
+  case "$FORCE_PROFILE" in
+    personal|work|oss) PROFILE="$FORCE_PROFILE" ;;
+    *) echo "Invalid forced profile: $FORCE_PROFILE" >&2; exit 2 ;;
+  esac
+else
+  if [[ "$TARGET_DIR" == "$WORK_ROOT"* ]]; then
+    PROFILE="work"
+  else
+    # personal for personal and open-source
+    PROFILE="personal"
+  fi
+fi
+
+# Map to user-data-dir and extensions-dir
+case "$PROFILE" in
+  personal|oss)
+    USER_DATA_DIR="$PERSONAL_PROFILE"
+    EXTENSIONS_DIR="$PERSONAL_EXT"
+    ;;
+  work)
+    USER_DATA_DIR="$WORK_PROFILE"
+    EXTENSIONS_DIR="$WORK_EXT"
+    ;;
+  *)
+    USER_DATA_DIR="$PERSONAL_PROFILE"
+    EXTENSIONS_DIR="$PERSONAL_EXT"
+    ;;
+esac
+
+mkdir -p "$USER_DATA_DIR" "$EXTENSIONS_DIR"
+
+# Prefer opening the original target the user provided
+TARGET_ABS="$(canonicalize "$TARGET")"
+
+LAUNCH_CMD=(open -na "Cursor" --args --user-data-dir="$USER_DATA_DIR" --extensions-dir="$EXTENSIONS_DIR" "$TARGET_ABS")
+
+if [[ $DRY_RUN -eq 1 ]]; then
+  echo "Target: $TARGET_ABS"
+  echo "Detected project dir: $TARGET_DIR"
+  echo "Chosen profile: $PROFILE"
+  echo "User data dir: $USER_DATA_DIR"
+  echo "Extensions dir: $EXTENSIONS_DIR"
+  echo "Command: ${LAUNCH_CMD[@]}"
+  exit 0
+fi
+
+if [[ $PRINT_CMD -eq 1 ]]; then
+  printf '%q ' "${LAUNCH_CMD[@]}"; echo
+fi
+
+exec "${LAUNCH_CMD[@]}"
+
+
