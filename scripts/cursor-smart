@@ -16,11 +16,12 @@ canonicalize() {
 
 print_usage() {
   cat << USAGE
-Usage: cursor-smart [--dry-run] [--print-cmd] [--profile=personal|work|oss] [path]
+Usage: cursor-smart [--dry-run] [--print-cmd] [--profile=personal|work|oss] [--wait] [path]
 
 - --dry-run     Print the detected profile and command without launching Cursor
 - --print-cmd   Print the final launch command
 - --profile     Force profile (personal/work). 'oss' maps to personal
+- --wait        Wait for Cursor to close before returning (useful for git hooks)
 - path          File or directory to open (defaults to current directory)
 USAGE
 }
@@ -28,6 +29,7 @@ USAGE
 DRY_RUN=0
 PRINT_CMD=0
 FORCE_PROFILE=""
+WAIT_FOR_CURSOR=0
 
 for arg in "$@"; do
   case "$arg" in
@@ -41,6 +43,7 @@ while [[ "$#" -gt 0 ]]; do
     --dry-run) DRY_RUN=1; shift ;;
     --print-cmd) PRINT_CMD=1; shift ;;
     --profile=*) FORCE_PROFILE="${1#*=}"; shift ;;
+    --wait) WAIT_FOR_CURSOR=1; shift ;;
     --) shift; break ;;
     --*) echo "Unknown option: $1" >&2; print_usage; exit 2 ;;
     *) break ;;
@@ -105,7 +108,20 @@ mkdir -p "$USER_DATA_DIR" "$EXTENSIONS_DIR"
 # Prefer opening the original target the user provided
 TARGET_ABS="$(canonicalize "$TARGET")"
 
-LAUNCH_CMD=(open -na "Cursor" --args --user-data-dir="$USER_DATA_DIR" --extensions-dir="$EXTENSIONS_DIR" "$TARGET_ABS")
+# Configure launch command based on wait flag
+if [[ $WAIT_FOR_CURSOR -eq 1 ]]; then
+  # Call Cursor directly with --wait flag for git workflows (like VSCode)
+  # This waits for the specific file to be closed, not the entire app to quit
+  CURSOR_BIN="/Applications/Cursor.app/Contents/MacOS/Cursor"
+  if [[ ! -x "$CURSOR_BIN" ]]; then
+    echo "Error: Cursor not found at $CURSOR_BIN" >&2
+    exit 1
+  fi
+  LAUNCH_CMD=("$CURSOR_BIN" --user-data-dir="$USER_DATA_DIR" --extensions-dir="$EXTENSIONS_DIR" --wait "$TARGET_ABS")
+else
+  # Use open command for normal usage (doesn't wait)
+  LAUNCH_CMD=(open -na "Cursor" --args --user-data-dir="$USER_DATA_DIR" --extensions-dir="$EXTENSIONS_DIR" "$TARGET_ABS")
+fi
 
 if [[ $DRY_RUN -eq 1 ]]; then
   echo "Target: $TARGET_ABS"
