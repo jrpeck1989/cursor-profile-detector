@@ -1,15 +1,14 @@
+on runCursorSmart(posixPath)
+	set homePOSIX to POSIX path of (path to home folder)
+	set smartCLI to homePOSIX & "bin/cursor-smart"
+	do shell script smartCLI & " " & quoted form of posixPath & " >/dev/null 2>&1 &"
+end runCursorSmart
+
 on alfred_script(q)
 
 	set finderSelection to ""
 	set theTargets to {}
 	set defaultTarget to (path to home folder as alias)
-
-	set homePOSIX to POSIX path of (path to home folder)
-	set smartCLI to homePOSIX & "bin/cursor-smart"
-
-	on runCursorSmart(posixPath)
-		do shell script smartCLI & " " & quoted form of posixPath & " >/dev/null 2>&1 &"
-	end runCursorSmart
 
 	if (q as string) is "" then
 		tell application "Finder"
